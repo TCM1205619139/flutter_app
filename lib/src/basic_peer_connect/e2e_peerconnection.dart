@@ -27,10 +27,18 @@ class Room extends StatefulWidget {
 
 class RoomState extends State<Room> {
   var channel;
+  Map<String, String> info = {
+    "name": "Sweet",
+    "age": "22",
+    "country": "china"
+  };
   RTCVideoRenderer _localRender = RTCVideoRenderer();
-  RTCVideoRenderer _remoteRender = RTCVideoRenderer();
-  Map<String, RTCPeerConnection> _peerConnections = {};
-//  Map<String, dynamic> _clients;
+  var _remoteRenders = new Map<String, RTCVideoRenderer>();
+  var _peerConnections = new Map<String, RTCPeerConnection>();
+  Map<String, dynamic> test = {
+    "name": "Sweet",
+    "age": "51"
+  };
   String _selfId;
   MediaStream _localStream;
   bool _isCalling = false;
@@ -82,20 +90,14 @@ class RoomState extends State<Room> {
   void initState() {
     super.initState();
     _localRender.initialize();
-    _remoteRender.initialize();
+//    _remoteRenders = ;
   }
   @override
   void dispose() {
     super.dispose();
     print("================connect close====================");
+    this._hangUp();
     channel.sink.close();
-  }
-
-  void _onRemoveStream(MediaStream stream) {
-    _remoteRender.srcObject = null;
-  }
-  void _onAddStream(MediaStream stream) {
-    _remoteRender.srcObject = stream;
   }
 
   void _makeCall() async {
@@ -108,7 +110,6 @@ class RoomState extends State<Room> {
 
       channel.stream.listen((message) {
         var data = json.decode(message);
-        print("=================get message: type is ${data["title"]}======================");
         switch(data["title"]) {
           case "sessionDescription":
             _getSDP(data);
@@ -123,7 +124,6 @@ class RoomState extends State<Room> {
             _getOther(data);
         }
       });
-
     } catch (e) {
       print(e.toString());
     }
@@ -162,14 +162,26 @@ class RoomState extends State<Room> {
         print("=============================get Offer==================================");
         var sdp = RTCSessionDescription(data["data"]["sdp"], data["data"]["type"]);
         var _peerConnection = await createPeerConnection(configuration, loopbackConstraints);
-        print("============================= create peer =====================================");
-        _peerConnection.onRemoveStream = _onRemoveStream;
-        _peerConnection.onAddStream = _onAddStream;
+        var render = RTCVideoRenderer();
+        render.initialize();
+        _peerConnection.onRemoveStream = (stream) {
+          print("====================${data["sponsor"]}============================");
+          setState(() {
+            _remoteRenders[data["sponsor"]].srcObject = null;
+            _remoteRenders[data["sponsor"]] = null;
+          });
+        };
+        _peerConnection.onAddStream = (stream) {
+          setState(() {
+            test[data["sponsor"]] = render.toString();
+            render.srcObject = stream;
+            _remoteRenders[data["sponsor"]] = render;
+          });
+        };
 
         _peerConnection.addStream(_localStream);
         _peerConnection.setRemoteDescription(sdp);
         _peerConnection.createAnswer(answerSdpConstraints).then((answer) {
-          print("===================================send answer===================================");
           _peerConnection.setLocalDescription(answer);
           channel.sink.add(json.encode({
             "title": "sessionDescription",
@@ -203,14 +215,11 @@ class RoomState extends State<Room> {
     * 2. 通过sponsor属性找到对应的peer，进行添加
     * */
     var candidate = RTCIceCandidate(data["data"]["candidate"], data["data"]["sdpMid"], data["data"]["sdpMLineIndex"]);
-    print("========${_peerConnections.length}=============get candidate ${candidate.toMap()}==sponsor client is ${data["sponsor"]}==========receive is ${data["receive"]}=======self is $_selfId==================");
     Timer(Duration(seconds: 3), () async {
       await _peerConnections[data["sponsor"]].addCandidate(candidate);
     });
-    print("================================peer is ${_peerConnections[data["sponsor"]]}=====================================");
   }
   void _getClientsNumber(dynamic data) async {
-    print("=============get clientsNumber====data is: $data===peer length is: ${_peerConnections.length}=============");
     if(!_joined) { /* 当前客户端加入房间 */
       _selfId = data["owner"];
       _joined = true;
@@ -218,9 +227,8 @@ class RoomState extends State<Room> {
         return;
       } else {  /* 有多个在线客户端时与每个客户端建立peerConnection连接， 发送offer */
         await data["data"].forEach((key, value) {
-          print("===================value: $value======_selfId: $_selfId============================");
           if(value != _selfId) {
-            createPeerAndOffer(key, value).then((_peerConnection) {
+            createPeerAndOffer(key, value, data).then((_peerConnection) {
               _peerConnections[key] = _peerConnection;
             });
           }
@@ -230,7 +238,6 @@ class RoomState extends State<Room> {
       /* 不是当前客户端加入房间，而是收到其他客户端加入房间的消息
       * 1. 判断收到的客户端数量与本地的比较，进行相应的增加peer或者删除
       * */
-      print("============${_peerConnections.length}======${data["clientsNumber"]}==========================");
       if(_peerConnections.length > data["clientsNumber"] - 1) {
         // 删除peerConnection
         _peerConnections.forEach((key, value) {
@@ -240,14 +247,24 @@ class RoomState extends State<Room> {
         });
       }
     }
-    print("==================selfId is $_selfId=========================");
   }
 
-  Future createPeerAndOffer(key, value) async {
-    print("================create peer and offer to $key========================");
+  Future createPeerAndOffer(String key, String value,dynamic data) async {
     var _peerConnection = await createPeerConnection(configuration, loopbackConstraints);
-    _peerConnection.onRemoveStream = _onRemoveStream;
-    _peerConnection.onAddStream = _onAddStream;
+    var render = RTCVideoRenderer();
+    render.initialize();
+    _peerConnection.onRemoveStream = (stream) {
+      setState(() {
+        _remoteRenders[data["sponsor"]].srcObject = null;
+        _remoteRenders[data["sponsor"]] = null;
+      });
+    };
+    _peerConnection.onAddStream = (stream) {
+      render.srcObject = stream;
+      _remoteRenders[data["sponsor"]] = render;
+      test["country1"] = "china1";
+      print("+++++++++++${_remoteRenders.keys}++ ${_remoteRenders.values}+++++++++++++++");
+    };
     _peerConnection.addStream(_localStream);
     _peerConnection.createOffer(offerSdpConstraints).then((offer) {
       _peerConnection.setLocalDescription(offer);
@@ -275,31 +292,45 @@ class RoomState extends State<Room> {
 
   }
 
+  List<Widget> _buildRemoteRenders() {
+    List<Widget> listWidget = [];
+    print("+++++++++++++++++++++++++ ${_remoteRenders.length} +++${_remoteRenders.values}+++++++++++++++++++++++++++");
+    _remoteRenders.forEach((key, value) {
+      listWidget.add(Expanded(flex: 1, child: RTCVideoView(value)));
+    });
+//    this.test.forEach((key, value) {
+//      listWidget.add(Text("$key: $value"));
+//    });
+    print("add VideoView end");
+
+    return listWidget;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(title: Text("多对多通信")),
       body: Column(
         children: <Widget>[
+          Expanded(flex: 1, child: Scaffold(
+            body: RTCVideoView(_localRender),
+            floatingActionButton: FloatingActionButton(
+              child: _isCalling ? Icon(Icons.pause) : Icon(Icons.phone),
+              onPressed: () {
+                if(_isCalling) {
+                  _hangUp();
+                } else {
+                  _makeCall();
+                }
+              },
+            ),
+          )),
           Expanded(
             flex: 1,
-            child: Scaffold(
-              body: RTCVideoView(_localRender),
-              floatingActionButton: FloatingActionButton(
-                child: _isCalling ? Icon(Icons.pause) : Icon(Icons.phone),
-                onPressed: () {
-                  if(_isCalling) {
-                    _hangUp();
-                  } else {
-                    _makeCall();
-                  }
-                },
-              ),
+            child: Column(
+              children: _buildRemoteRenders(),
             )
           ),
-          Expanded(
-            flex: 1,
-            child: RTCVideoView(_remoteRender),
-          )
         ],
       ),
     );
